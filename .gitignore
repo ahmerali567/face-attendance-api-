@@ -1,0 +1,12 @@
+# Sensitive credentials
+.env
+
+# Python environment and cache
+venv/
+__pycache__/
+*.pyc
+
+# Heavy archives and installers
+*.tgz
+instantclient_*.zip
+instantclient_*/
