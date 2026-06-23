@@ -1,0 +1,49 @@
+name: Build & Deploy to AWS EC2
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/face-attendance:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key:      ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/face-attendance:latest
+            docker stop face-attendance || true
+            docker rm   face-attendance || true
+            docker run -d \
+              --name face-attendance \
+              --restart always \
+              -p 8000:8000 \
+              -v /home/ubuntu/student_photos:/app/student_photos \
+              --env-file /home/ubuntu/.env \
+              ${{ secrets.DOCKERHUB_USERNAME }}/face-attendance:latest
+            echo "Deployment complete"

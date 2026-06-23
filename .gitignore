@@ -1,12 +1,21 @@
-# Sensitive credentials
+# Environment
 .env
+*.env
 
-# Python environment and cache
-venv/
+# Python
 __pycache__/
 *.pyc
+*.pyo
+venv/
+.venv/
 
-# Heavy archives and installers
-*.tgz
-instantclient_*.zip
+# Student photos — kabhi bhi git mein mat daalo
+student_photos/
+
+# Oracle client
 instantclient_*/
+*.tgz
+*.zip
+
+# Logs
+*.log
