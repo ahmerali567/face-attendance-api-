@@ -16,8 +16,7 @@ import face_recognition
 # ─────────────────────────────────────────────
 load_dotenv()
 
-LIB_DIR = os.getenv("ORACLE_LIB_DIR", "./instantclient_21_20")
-oracledb.init_oracle_client(lib_dir=LIB_DIR)
+
 
 db_config = {
     "user":     os.getenv("DB_USER"),
