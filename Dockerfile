@@ -1,5 +1,7 @@
+# ── Base image ────────────────────────────────────────────────────────────────
 FROM python:3.11-slim
 
+# ── System deps (dlib / face_recognition compile karne ke liye) ───────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         cmake \
@@ -12,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         unzip \
     && rm -rf /var/lib/apt/lists/*
 
+# ── App setup ─────────────────────────────────────────────────────────────────
 WORKDIR /app
 
 COPY requirements.txt .
@@ -21,5 +24,6 @@ COPY main.py .
 
 RUN mkdir -p /app/student_photos
 
+# ── Run ───────────────────────────────────────────────────────────────────────
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -16,7 +16,9 @@ import face_recognition
 # ─────────────────────────────────────────────
 load_dotenv()
 
-
+# Thick mode — Oracle Instant Client required
+LIB_DIR = os.getenv("ORACLE_LIB_DIR", "/opt/oracle/instantclient_19_23")
+oracledb.init_oracle_client(lib_dir=LIB_DIR)
 
 db_config = {
     "user":     os.getenv("DB_USER"),
