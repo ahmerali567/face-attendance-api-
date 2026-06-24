@@ -1,5 +1,3 @@
-FROM ghcr.io/oracle/oraclelinux8-instantclient:19 AS oracle-client
-
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,16 +9,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgtk-3-dev \
         libboost-python-dev \
         libaio1t64 \
+        wget \
+        alien \
     && ln -s /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1 \
+    && wget -q https://download.oracle.com/otn_software/linux/instantclient/1923000/oracle-instantclient19.23-basiclite-19.23.0.0.0-1.x86_64.rpm \
+    && alien -i oracle-instantclient19.23-basiclite-19.23.0.0.0-1.x86_64.rpm \
+    && rm oracle-instantclient19.23-basiclite-19.23.0.0.0-1.x86_64.rpm \
+    && echo "/usr/lib/oracle/19.23/client64/lib" > /etc/ld.so.conf.d/oracle.conf \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=oracle-client /usr/lib/oracle/19/client64/lib /opt/oracle/instantclient_19
-COPY --from=oracle-client /usr/lib/oracle/19/client64/bin /opt/oracle/bin
-
-RUN echo "/opt/oracle/instantclient_19" > /etc/ld.so.conf.d/oracle.conf && ldconfig
-
-ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_19
-ENV ORACLE_LIB_DIR=/opt/oracle/instantclient_19
+ENV LD_LIBRARY_PATH=/usr/lib/oracle/19.23/client64/lib
+ENV ORACLE_LIB_DIR=/usr/lib/oracle/19.23/client64/lib
 
 WORKDIR /app
 COPY requirements.txt .
