@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from pathlib import Path
 import face_recognition
+import datetime
 
 # ─────────────────────────────────────────────
 # ENV + ORACLE INIT
@@ -255,6 +256,7 @@ async def verify_attendance(file: UploadFile = File(...)):
             return {"status": "unknown", "message": "Cache is empty", "recognized_people": []}
 
         recognized_people = []
+        today_str = datetime.date.today().strftime('%Y-%m-%d') # Procedure requires YYYY-MM-DD format
 
         for current_face in current_encodings:
             face_distances = face_recognition.face_distance(KNOWN_FACE_ENCODINGS, current_face)
@@ -272,47 +274,49 @@ async def verify_attendance(file: UploadFile = File(...)):
                     "confidence": confidence,
                 })
 
-                # ── Attendance UPSERT — sirf students ke liye ──
+                # ── Attendance Procedure Call — sirf students ke liye ──
                 if person_type == "student":
                     try:
                         conn = get_db_connection()
                         cur  = conn.cursor()
 
-                        # Aaj ki date pe row hai ya nahi check karo
-                        cur.execute(
-                            "SELECT id FROM student_attendance "
-                            "WHERE student_id = :1 AND attendance_date = TRUNC(SYSDATE)",
-                            [person_id],
+                        # Define OUT parameter for Oracle
+                        status_out = cur.var(str)
+
+                        # Execute the Stored Procedure
+                        cur.callproc(
+                            "pr_mark_student_attendance",
+                            [
+                                int(person_id),     # p_student_id
+                                today_str,          # p_date
+                                'present',          # p_status
+                                1,                  # p_face_verified
+                                status_out          # p_status_out (OUT parameter)
+                            ]
                         )
-                        existing_attendance = cur.fetchone()
-
-                        if existing_attendance:
-                            # Row hai — sirf face_verified aur check_in_time update karo
-                            cur.execute(
-                                "UPDATE student_attendance "
-                                "SET face_verified = 1, "
-                                "    check_in_time = SYSTIMESTAMP, "
-                                "    updated_at    = SYSDATE "
-                                "WHERE student_id = :1 "
-                                "AND attendance_date = TRUNC(SYSDATE)",
-                                [person_id],
-                            )
-                        else:
-                            # Row nahi hai — naya insert karo
-                            cur.execute(
-                                "INSERT INTO student_attendance "
-                                "(id, student_id, attendance_date, status, face_verified, check_in_time, created_at) "
-                                "VALUES "
-                                "(student_attendance_seq.NEXTVAL, :1, TRUNC(SYSDATE), 'present', 1, SYSTIMESTAMP, SYSDATE)",
-                                [person_id],
-                            )
-
-                        conn.commit()
+                        
+                        proc_result = status_out.getvalue()
                         cur.close()
                         conn.close()
 
+                        # Procedure ne agar FAILED return kiya, toh request yahi block karo
+                        if proc_result != 'SUCCESS':
+                            print(f"[PROCEDURE ERROR] student_id={person_id} — {proc_result}")
+                            return {
+                                "status": "database_error",
+                                "message": f"Procedure failed for ID {person_id}: {proc_result}",
+                                "recognized_people": []
+                            }
+
                     except Exception as db_err:
-                        print(f"[ATTENDANCE UPSERT ERROR] student_id={person_id} — {db_err}")
+                        exact_error = str(db_err)
+                        print(f"[ATTENDANCE UPSERT ERROR] student_id={person_id} — {exact_error}")
+                        # Strict Error Return to Postman/Frontend
+                        return {
+                            "status": "database_error",
+                            "message": f"Oracle rejected the procedure call for ID {person_id}: {exact_error}",
+                            "recognized_people": []
+                        }
 
         if recognized_people:
             return {
@@ -329,7 +333,6 @@ async def verify_attendance(file: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ─────────────────────────────────────────────
 # CLASS STUDENTS  (for attendance UI grid)
