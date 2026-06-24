@@ -159,7 +159,7 @@ async def register_face(
         if img is None:
             raise HTTPException(status_code=400, detail="Invalid image file")
 
-        rgb_img       = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        rgb_img        = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         face_encodings = face_recognition.face_encodings(rgb_img)
 
         if len(face_encodings) == 0:
@@ -171,14 +171,12 @@ async def register_face(
         # ── 2. Save photo (students only) ────────────────
         photo_filename = None
         if person_type.lower() == "student":
-            photo_filename    = f"{person_id}.jpg"
-            photo_save_path   = PHOTOS_DIR / photo_filename
+            photo_filename  = f"{person_id}.jpg"
+            photo_save_path = PHOTOS_DIR / photo_filename
             with open(photo_save_path, "wb") as f:
                 f.write(contents)
 
         # ── 3. DB — UPSERT face descriptor ───────────────
-        #    If person already registered → update descriptor
-        #    If new → insert fresh row
         connection = get_db_connection()
         cursor     = connection.cursor()
 
@@ -189,14 +187,12 @@ async def register_face(
         existing = cursor.fetchone()
 
         if existing:
-            # UPDATE — re-registration (face change, better photo)
             cursor.execute(
                 "UPDATE FACE_DESCRIPTORS1 SET descriptor = :1, created_at = SYSDATE "
                 "WHERE person_type = :2 AND person_id = :3",
                 [embedding_string, person_type.lower(), int(person_id)],
             )
         else:
-            # INSERT — first time
             cursor.execute(
                 "INSERT INTO FACE_DESCRIPTORS1 (id, person_type, person_id, descriptor, created_at) "
                 "VALUES (FACE_DESCRIPTORS_SEQ1.NEXTVAL, :1, :2, :3, SYSDATE)",
@@ -215,7 +211,6 @@ async def register_face(
         connection.close()
 
         # ── 5. Sync RAM cache ────────────────────────────
-        #    Remove old entry if exists, then append fresh
         try:
             idx = KNOWN_PERSON_IDS.index(int(person_id))
             KNOWN_FACE_ENCODINGS[idx] = embedding_vector
@@ -228,7 +223,7 @@ async def register_face(
         return {
             "status":    "success",
             "message":   f"Face {'updated' if existing else 'registered'} for {person_type.upper()} ID: {person_id}",
-            "photo_url": photo_filename,   # e.g. "123.jpg"  — frontend adds base URL
+            "photo_url": photo_filename,
         }
 
     except HTTPException:
@@ -250,7 +245,7 @@ async def verify_attendance(file: UploadFile = File(...)):
         if img is None:
             return {"status": "error", "message": "Corrupted frame", "recognized_people": []}
 
-        rgb_img          = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        rgb_img           = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         current_encodings = face_recognition.face_encodings(rgb_img)
 
         if not current_encodings:
@@ -262,27 +257,73 @@ async def verify_attendance(file: UploadFile = File(...)):
         recognized_people = []
 
         for current_face in current_encodings:
-            face_distances   = face_recognition.face_distance(KNOWN_FACE_ENCODINGS, current_face)
-            best_idx         = int(np.argmin(face_distances))
-            matches          = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, current_face, tolerance=0.45)
+            face_distances = face_recognition.face_distance(KNOWN_FACE_ENCODINGS, current_face)
+            best_idx       = int(np.argmin(face_distances))
+            matches        = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, current_face, tolerance=0.45)
 
             if matches[best_idx]:
+                person_id   = KNOWN_PERSON_IDS[best_idx]
+                person_type = KNOWN_PERSON_TYPES[best_idx]
+                confidence  = round(float(1 - face_distances[best_idx]), 4)
+
                 recognized_people.append({
-                    "person_id":  str(KNOWN_PERSON_IDS[best_idx]),
-                    "role":       KNOWN_PERSON_TYPES[best_idx],
-                    "confidence": round(float(1 - face_distances[best_idx]), 4),
+                    "person_id":  str(person_id),
+                    "role":       person_type,
+                    "confidence": confidence,
                 })
+
+                # ── Attendance UPSERT — sirf students ke liye ──
+                if person_type == "student":
+                    try:
+                        conn = get_db_connection()
+                        cur  = conn.cursor()
+
+                        # Aaj ki date pe row hai ya nahi check karo
+                        cur.execute(
+                            "SELECT id FROM student_attendance "
+                            "WHERE student_id = :1 AND attendance_date = TRUNC(SYSDATE)",
+                            [person_id],
+                        )
+                        existing_attendance = cur.fetchone()
+
+                        if existing_attendance:
+                            # Row hai — sirf face_verified aur check_in_time update karo
+                            cur.execute(
+                                "UPDATE student_attendance "
+                                "SET face_verified = 1, "
+                                "    check_in_time = SYSTIMESTAMP, "
+                                "    updated_at    = SYSDATE "
+                                "WHERE student_id = :1 "
+                                "AND attendance_date = TRUNC(SYSDATE)",
+                                [person_id],
+                            )
+                        else:
+                            # Row nahi hai — naya insert karo
+                            cur.execute(
+                                "INSERT INTO student_attendance "
+                                "(id, student_id, attendance_date, status, face_verified, check_in_time, created_at) "
+                                "VALUES "
+                                "(student_attendance_seq.NEXTVAL, :1, TRUNC(SYSDATE), 'present', 1, SYSTIMESTAMP, SYSDATE)",
+                                [person_id],
+                            )
+
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+
+                    except Exception as db_err:
+                        print(f"[ATTENDANCE UPSERT ERROR] student_id={person_id} — {db_err}")
 
         if recognized_people:
             return {
-                "status":  "success",
-                "message": f"{len(current_encodings)} face(s) found, {len(recognized_people)} recognized.",
+                "status":            "success",
+                "message":           f"{len(current_encodings)} face(s) found, {len(recognized_people)} recognized.",
                 "recognized_people": recognized_people,
             }
 
         return {
-            "status":  "unknown",
-            "message": f"{len(current_encodings)} face(s) found, no match in cache.",
+            "status":            "unknown",
+            "message":           f"{len(current_encodings)} face(s) found, no match in cache.",
             "recognized_people": [],
         }
 
@@ -314,7 +355,7 @@ async def get_class_students(class_id: int):
                 "id":          str(row[0]),
                 "name":        row[1],
                 "roll_number": row[2],
-                "photo_url":   row[3],   # "123.jpg" or None
+                "photo_url":   row[3],
             }
             for row in rows
         ]
