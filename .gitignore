@@ -1,21 +1,11 @@
-# Environment
 .env
 *.env
-
-# Python
 __pycache__/
 *.pyc
 *.pyo
 venv/
 .venv/
-
-# Student photos — kabhi bhi git mein mat daalo
 student_photos/
-
-# Oracle client
 instantclient_*/
 *.tgz
-*.zip
-
-# Logs
 *.log

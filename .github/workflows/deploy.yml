@@ -38,6 +38,9 @@ jobs:
               --restart always \
               -p 8000:8000 \
               -v /home/ubuntu/student_photos:/app/student_photos \
+              -v /opt/oracle:/opt/oracle \
+              -v /usr/lib/x86_64-linux-gnu/libaio.so.1t64:/usr/lib/x86_64-linux-gnu/libaio.so.1 \
               --env-file /home/ubuntu/.env \
+              -e LD_LIBRARY_PATH=/opt/oracle/instantclient_19_23 \
               ${{ secrets.DOCKERHUB_USERNAME }}/face-attendance:latest
             echo "Deployment complete"
