@@ -1,3 +1,5 @@
+FROM ghcr.io/oracle/oraclelinux8-instantclient:19 AS oracle-client
+
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -8,26 +10,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libx11-dev \
         libgtk-3-dev \
         libboost-python-dev \
-        unzip \
         libaio1t64 \
     && ln -s /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1 \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=oracle-client /usr/lib/oracle/19/client64/lib /opt/oracle/instantclient_19
+COPY --from=oracle-client /usr/lib/oracle/19/client64/bin /opt/oracle/bin
+
+RUN echo "/opt/oracle/instantclient_19" > /etc/ld.so.conf.d/oracle.conf && ldconfig
+
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_19
+ENV ORACLE_LIB_DIR=/opt/oracle/instantclient_19
+
 WORKDIR /app
-
-COPY instantclient-basiclite-linux.x64-19.23.0.0.0dbru.zip /tmp/ic.zip
-RUN unzip /tmp/ic.zip -d /opt/oracle \
-    && rm /tmp/ic.zip \
-    && echo "/opt/oracle/instantclient_19_23" > /etc/ld.so.conf.d/oracle.conf \
-    && ldconfig
-
-ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_19_23
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
 COPY main.py .
-
 RUN mkdir -p /app/student_photos
 
 EXPOSE 8000
